@@ -279,7 +279,7 @@ a:hover {
   background-size: cover;
   background-position: center;
   opacity: 0;
-  transition: opacity 700ms ease-in-out, transform 800ms ease-in-out;
+  transition: opacity 800ms ease-in-out, transform 800ms ease-in-out;
   transform: scale(1.02);
   will-change: opacity, transform;
 }
@@ -303,7 +303,7 @@ a:hover {
     rgba(11, 59, 46, 0.5),
     rgba(96, 58, 46, 0.5)
   );
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(1px);
   z-index: 1;
 }
 
