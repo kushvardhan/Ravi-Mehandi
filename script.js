@@ -210,23 +210,30 @@
       observer.observe(el);
     });
 
-  // Carousel infinite with clones and autoplay
+  // Gallery carousel: true infinite loop by prepending + appending clones
   const track = document.getElementById("carouselTrack");
   const prevBtn = document.getElementById("carouselPrev");
   const nextBtn = document.getElementById("carouselNext");
   const galleryCarousel = document.getElementById("galleryCarousel");
   let slideIndex = 0,
     originalCount = 0,
-    cardWidth = 0;
-  const GAP = 16;
+    cardWidth = 0,
+    gapPx = 0;
 
   function updateCardMetrics() {
     if (!track || !track.children.length) return;
-    const first = track.children[0];
-    cardWidth = first.getBoundingClientRect().width + GAP;
+    // Pick a representative card (first) to compute width
+    const first = track.querySelector(".card");
+    if (!first) return;
+    // compute the current CSS gap (works in modern browsers)
+    const cs = window.getComputedStyle(track);
+    const gapStr =
+      cs.getPropertyValue("gap") || cs.getPropertyValue("column-gap") || "0px";
+    gapPx = parseFloat(gapStr) || 0;
+    cardWidth = first.getBoundingClientRect().width + gapPx;
   }
 
-  function updateCarousel(transition = true) {
+  function setTranslate(transition = true) {
     if (!track) return;
     updateCardMetrics();
     track.style.transition = transition
@@ -235,77 +242,103 @@
     track.style.transform = `translateX(${-slideIndex * cardWidth}px)`;
   }
 
-  track &&
+  // Handle seamless wrap: when reaching clones, jump back to middle copy
+  if (track) {
     track.addEventListener("transitionend", () => {
-      if (!track || originalCount <= 0) return;
-      if (slideIndex >= originalCount) {
-        slideIndex = slideIndex - originalCount;
-        updateCarousel(false);
-      } else if (slideIndex < 0) {
-        slideIndex = slideIndex + originalCount;
-        updateCarousel(false);
+      if (!originalCount) return;
+      // If we've advanced into the appended clones (right side)
+      if (slideIndex >= originalCount * 2) {
+        slideIndex -= originalCount;
+        setTranslate(false);
+      }
+      // If we've moved into the prepended clones (left side)
+      else if (slideIndex < originalCount) {
+        slideIndex += originalCount;
+        setTranslate(false);
       }
     });
+  }
 
+  // Prev / Next controls
   prevBtn &&
     prevBtn.addEventListener("click", () => {
-      slideIndex = slideIndex - 1;
-      updateCarousel();
+      slideIndex -= 1;
+      setTranslate();
       stopAutoplay();
       startAutoplay();
     });
 
   nextBtn &&
     nextBtn.addEventListener("click", () => {
-      slideIndex = slideIndex + 1;
-      updateCarousel();
+      slideIndex += 1;
+      setTranslate();
       stopAutoplay();
       startAutoplay();
     });
 
-  // Touch swipe support for carousel
-  galleryCarousel &&
+  // Touch swipe support
+  if (galleryCarousel) {
     galleryCarousel.addEventListener("touchstart", (e) => {
       touchStartX = e.changedTouches[0].screenX;
       stopAutoplay();
     });
 
-  galleryCarousel &&
     galleryCarousel.addEventListener("touchend", (e) => {
       touchEndX = e.changedTouches[0].screenX;
       if (touchStartX - touchEndX > 50) {
-        slideIndex = slideIndex + 1;
-        updateCarousel();
-      }
-      if (touchEndX - touchStartX > 50) {
-        slideIndex = slideIndex - 1;
-        updateCarousel();
+        slideIndex += 1;
+        setTranslate();
+      } else if (touchEndX - touchStartX > 50) {
+        slideIndex -= 1;
+        setTranslate();
       }
       startAutoplay();
     });
+  }
 
+  // Build clones (prepend + append) and center start index
   window.addEventListener("load", () => {
     if (!track) return;
     const originals = Array.from(track.children);
     originalCount = originals.length;
+    if (originalCount === 0) return;
+
+    // Append clones (end)
     originals.forEach((node) => track.appendChild(node.cloneNode(true)));
+
+    // Prepend clones (start) - insert in same order before first child
+    // We need to insert the clones in order, so iterate originals in reverse and insert before firstChild
+    originals
+      .slice()
+      .reverse()
+      .forEach((node) =>
+        track.insertBefore(node.cloneNode(true), track.firstChild)
+      );
+
+    // Start in the middle copy so we can move left/right seamlessly
+    slideIndex = originalCount;
+
+    // small delay so layout stabilizes
     setTimeout(() => {
-      updateCarousel(false);
+      updateCardMetrics();
+      setTranslate(false);
     }, 120);
   });
 
   window.addEventListener("resize", () => {
     setTimeout(() => {
-      updateCarousel(false);
+      updateCardMetrics();
+      setTranslate(false);
     }, 120);
   });
 
+  // Autoplay (one image at a time)
   let autoplayInterval = null;
   function startAutoplay() {
     if (autoplayInterval) return;
     autoplayInterval = setInterval(() => {
-      slideIndex = slideIndex + 1;
-      updateCarousel();
+      slideIndex += 1;
+      setTranslate();
     }, 4000);
   }
 
@@ -322,9 +355,10 @@
   galleryCarousel &&
     galleryCarousel.addEventListener("focusout", startAutoplay);
 
+  // start
   startAutoplay();
 
-  // Reviews carousel - Proper infinite scroll with scrollLeft
+  // Reviews carousel - infinite loop (one card per click) using cloned slides
   const reviewsTrack = document.getElementById("reviewsTrack");
   const reviewsViewport = document.querySelector(".reviews-viewport");
   const reviewsPrevBtn = document.getElementById("reviewsPrev");
@@ -332,8 +366,10 @@
 
   if (reviewsTrack && reviewsViewport && reviewsPrevBtn && reviewsNextBtn) {
     let cardWidth = 0;
-    let gap = 20;
+    const gap = 20; // should match CSS .reviews-track gap
     let isScrolling = false;
+    let originalCount = 0;
+    let slideIndex = 0; // absolute index in the track (includes clones)
 
     function getCardWidth() {
       const card = reviewsTrack.querySelector(".review-card");
@@ -341,78 +377,102 @@
       return card.getBoundingClientRect().width;
     }
 
-    function scrollToCard(index) {
-      if (isScrolling) return;
-      isScrolling = true;
-
+    function updateMetrics() {
       cardWidth = getCardWidth();
-      const scrollAmount = (cardWidth + gap) * index;
+    }
 
+    function scrollToIndex(idx, smooth = true) {
+      if (!reviewsViewport) return;
+      isScrolling = true;
+      const step = cardWidth + gap;
       reviewsViewport.scrollTo({
-        left: scrollAmount,
-        behavior: "smooth",
+        left: idx * step,
+        behavior: smooth ? "smooth" : "auto",
       });
-
+      // after transition, handle wrapping
       setTimeout(() => {
         isScrolling = false;
-        handleInfiniteScroll();
-      }, 600);
+        handleWrap();
+      }, 500);
     }
 
-    function handleInfiniteScroll() {
-      cardWidth = getCardWidth();
-      const maxScroll =
-        reviewsViewport.scrollWidth - reviewsViewport.clientWidth;
-      const currentScroll = reviewsViewport.scrollLeft;
-
-      // If at the end, jump to beginning
-      if (currentScroll >= maxScroll - 10) {
-        reviewsViewport.scrollLeft = 0;
-      }
-      // If at the beginning, jump to end
-      else if (currentScroll <= 10) {
-        reviewsViewport.scrollLeft = maxScroll;
+    function handleWrap() {
+      const step = cardWidth + gap;
+      const total = originalCount * 3;
+      if (slideIndex >= originalCount * 2) {
+        // jumped into appended clones; move back to middle copy
+        slideIndex -= originalCount;
+        reviewsViewport.scrollLeft = slideIndex * step;
+      } else if (slideIndex < originalCount) {
+        // jumped into prepended clones; move forward to middle copy
+        slideIndex += originalCount;
+        reviewsViewport.scrollLeft = slideIndex * step;
       }
     }
 
-    let currentIndex = 0;
-
+    // Prev / Next handlers (one card at a time)
     reviewsPrevBtn.addEventListener("click", () => {
-      currentIndex--;
-      scrollToCard(currentIndex);
+      if (isScrolling) return;
+      slideIndex -= 1;
+      scrollToIndex(slideIndex, true);
     });
 
     reviewsNextBtn.addEventListener("click", () => {
-      currentIndex++;
-      scrollToCard(currentIndex);
+      if (isScrolling) return;
+      slideIndex += 1;
+      scrollToIndex(slideIndex, true);
     });
 
     // Touch swipe support
-    let touchStartX = 0;
+    let rvTouchStartX = 0;
     reviewsViewport.addEventListener("touchstart", (e) => {
-      touchStartX = e.touches[0].clientX;
+      rvTouchStartX = e.touches[0].clientX;
     });
 
     reviewsViewport.addEventListener("touchend", (e) => {
       const touchEndX = e.changedTouches[0].clientX;
-      const diff = touchStartX - touchEndX;
-
+      const diff = rvTouchStartX - touchEndX;
+      if (Math.abs(diff) < 30) return;
       if (diff > 50) {
-        currentIndex++;
-        scrollToCard(currentIndex);
+        slideIndex += 1;
+        scrollToIndex(slideIndex, true);
       } else if (diff < -50) {
-        currentIndex--;
-        scrollToCard(currentIndex);
+        slideIndex -= 1;
+        scrollToIndex(slideIndex, true);
       }
     });
 
-    // Handle scroll manually
-    reviewsViewport.addEventListener("scroll", () => {
-      handleInfiniteScroll();
+    // Build clones and initialize
+    window.addEventListener("load", () => {
+      const originals = Array.from(reviewsTrack.children);
+      originalCount = originals.length;
+      if (originalCount === 0) return;
+
+      // append clones
+      originals.forEach((n) => reviewsTrack.appendChild(n.cloneNode(true)));
+      // prepend clones (reverse order)
+      originals
+        .slice()
+        .reverse()
+        .forEach((n) =>
+          reviewsTrack.insertBefore(n.cloneNode(true), reviewsTrack.firstChild)
+        );
+
+      updateMetrics();
+      // start in middle copy
+      slideIndex = originalCount;
+      // set scroll position without animation
+      setTimeout(() => {
+        scrollToIndex(slideIndex, false);
+      }, 80);
     });
 
     window.addEventListener("resize", () => {
-      cardWidth = getCardWidth();
+      setTimeout(() => {
+        updateMetrics();
+        // reposition to current logical slide without transition
+        scrollToIndex(slideIndex, false);
+      }, 120);
     });
   }
 })();
