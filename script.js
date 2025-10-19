@@ -20,6 +20,37 @@
     setInterval(rotateHeroSlides, 15000);
   }
 
+  // Hero Carousel - JS driven: toggle .active every 4 seconds
+  if (heroCarousel) {
+    const slides = Array.from(heroCarousel.querySelectorAll(".hero-slide"));
+    let current = 0;
+
+    function showSlide(idx) {
+      slides.forEach((s, i) => {
+        s.classList.toggle("active", i === idx);
+      });
+    }
+
+    // Ensure first slide is visible
+    if (slides.length) showSlide(0);
+
+    // rotate every 4 seconds
+    const HERO_INTERVAL = 4000;
+    let heroTimer = setInterval(() => {
+      current = (current + 1) % slides.length;
+      showSlide(current);
+    }, HERO_INTERVAL);
+
+    // Pause on hover to improve UX
+    heroCarousel.addEventListener("mouseenter", () => clearInterval(heroTimer));
+    heroCarousel.addEventListener("mouseleave", () => {
+      heroTimer = setInterval(() => {
+        current = (current + 1) % slides.length;
+        showSlide(current);
+      }, HERO_INTERVAL);
+    });
+  }
+
   // Mobile nav toggle
   const navToggle = document.getElementById("navToggle");
   const nav = document.getElementById("nav");
